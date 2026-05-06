@@ -60,21 +60,31 @@ def predict(request: LoanRequest):
     })
 
     # Predict probability
-    probability = model.predict_proba(input_data)[0][1]
+    # probability = model.predict_proba(input_data)[0][1]
+
+    no_default_probability = model.predict_proba(input_data)[0][1]
+
+    default_probability = 1 - no_default_probability
 
     # Custom threshold
     threshold = 0.4
 
+    # prediction = (
+    #     "Default"
+    #     if probability >= threshold
+    #     else "No Default"
+    # )
+
     prediction = (
-        "Default"
-        if probability >= threshold
-        else "No Default"
+    "Default"
+    if default_probability >= threshold
+    else "No Default"
     )
 
     return {
-        "prediction": prediction,
-        "default_probability": round(
-            float(probability) * 100,
-            2
-        )
+    "prediction": prediction,
+    "default_probability": round(
+        float(default_probability) * 100,
+        2
+    )
     }
