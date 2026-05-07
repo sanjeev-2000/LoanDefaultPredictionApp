@@ -1,5 +1,5 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
 
 import pandas as pd
 import joblib
@@ -8,7 +8,7 @@ import joblib
 # ==========================================
 # LOAD MODEL
 # ==========================================
-model = joblib.load("loan_model.pkl")
+model = joblib.load("loan_default_model.pkl")
 
 
 # ==========================================
@@ -23,18 +23,32 @@ app = FastAPI(
 # REQUEST BODY
 # ==========================================
 class LoanRequest(BaseModel):
-    loan_amount: float
-    income: float
-    credit_score: float
-    age: str
 
+    age: float = Field(
+        ...,
+        ge=18,
+        le=100,
+        description="Age must be between 18 and 100"
+    )
 
-# ==========================================
-# AGE CONVERTER
-# ==========================================
-def convert_age(age_range):
-    start, end = age_range.split('-')
-    return (int(start) + int(end)) / 2
+    income: float = Field(
+        ...,
+        gt=0,
+        description="Income must be greater than 0"
+    )
+
+    loan_amount: float = Field(
+        ...,
+        gt=0,
+        description="Loan amount must be greater than 0"
+    )
+
+    credit_score: float = Field(
+        ...,
+        ge=300,
+        le=850,
+        description="Credit score must be between 300 and 850"
+    )
 
 
 # ==========================================
@@ -43,48 +57,67 @@ def convert_age(age_range):
 @app.post("/predict")
 def predict(request: LoanRequest):
 
-    # Feature Engineering
+    # ==========================================
+    # ADDITIONAL BUSINESS VALIDATIONS
+    # ==========================================
+
+    # Loan amount should not be absurdly high
+    if request.loan_amount > 10000000:
+        raise HTTPException(
+            status_code=400,
+            detail="Loan amount exceeds allowed limit"
+        )
+
+    # Income sanity check
+    if request.income < 1000:
+        raise HTTPException(
+            status_code=400,
+            detail="Income is unrealistically low"
+        )
+
+    # ==========================================
+    # FEATURE ENGINEERING
+    # ==========================================
     loan_income_ratio = (
         request.loan_amount / (request.income + 1)
     )
 
-    age_numeric = convert_age(request.age)
-
-    # Create dataframe
+    # ==========================================
+    # CREATE INPUT DATAFRAME
+    # ==========================================
     input_data = pd.DataFrame({
-        'loan_amount': [request.loan_amount],
+        'age': [request.age],
         'income': [request.income],
+        'loan_amount': [request.loan_amount],
         'credit_score': [request.credit_score],
-        'loan_income_ratio': [loan_income_ratio],
-        'age_numeric': [age_numeric]
+        'loan_income_ratio': [loan_income_ratio]
     })
 
-    # Predict probability
-    # probability = model.predict_proba(input_data)[0][1]
+    # ==========================================
+    # PREDICT PROBABILITIES
+    # ==========================================
+    probabilities = model.predict_proba(input_data)[0]
 
-    no_default_probability = model.predict_proba(input_data)[0][1]
+    # Class Mapping
+    # 0 = Default
+    # 1 = No Default
+    default_probability = probabilities[0]
+    no_default_probability = probabilities[1]
 
-    default_probability = 1 - no_default_probability
+    # ==========================================
+    # FINAL PREDICTION
+    # ==========================================
+    if no_default_probability >= default_probability:
+        prediction = "No Default"
+        probability = no_default_probability
+    else:
+        prediction = "Default"
+        probability = default_probability
 
-    # Custom threshold
-    threshold = 0.4
-
-    # prediction = (
-    #     "Default"
-    #     if probability >= threshold
-    #     else "No Default"
-    # )
-
-    prediction = (
-    "Default"
-    if default_probability >= threshold
-    else "No Default"
-    )
-
+    # ==========================================
+    # RESPONSE
+    # ==========================================
     return {
-    "prediction": prediction,
-    "default_probability": round(
-        float(default_probability) * 100,
-        2
-    )
+        "prediction": prediction,
+        "probability": round(float(probability), 2)
     }
