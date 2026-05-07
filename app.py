@@ -8,7 +8,7 @@ import joblib
 # ==========================================
 # LOAD MODEL
 # ==========================================
-model = joblib.load("loan_default_model.pkl")
+model = joblib.load("loan_model.pkl")
 
 
 # ==========================================
